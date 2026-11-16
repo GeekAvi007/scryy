@@ -1,0 +1,15 @@
+export const GAME_CONFIG = {
+    MAX_PLAYERS: 8,
+    MIN_PLAYERS_TO_START: 2,
+    ROUND_DURATION_SEC: 60,
+    TOTAL_ROUNDS: 3,
+    ROOM_CODE_LENGTH: 6,
+  };
+  
+  export const ROOM_STATUS = {
+    LOBBY: 'LOBBY',
+    WORD_SELECT: 'WORD_SELECT',
+    DRAWING: 'DRAWING',
+    ROUND_END: 'ROUND_END',
+    GAME_OVER: 'GAME_OVER',
+  };

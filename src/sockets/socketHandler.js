@@ -1,19 +1,19 @@
+import { registerRoomEvents } from './roomEvents.js';
+import { roomManager } from '../state/RoomManager.js';
+
 export function registerSocketHandlers(io, socket) {
-    console.log(`[CONNECTED] Socket ID: ${socket.id}`);
+  console.log(`[CONNECTED] Socket ID: ${socket.id}`);
 
-    // Handshake test
+  // Register domain event modules
+  registerRoomEvents(io, socket);
 
-    socket.on('ping_server', (payload) => {
-        console.log(`[PING] From ${socket.id}:`, payload);
-        socket.emit('pong_client', {
-            message: 'Pong from Node.js backend!',
-            yourSocketId: socket.id,
-            serverTime: Date.now()
-        });
-    })
+  socket.on('disconnect', (reason) => {
+    console.log(`[DISCONNECTED] Socket ID: ${socket.id} | Reason: ${reason}`);
 
-    socket.on('disconnect', (reason) => {
-        console.log(`[DISCONNECTED] Socket ID: ${socket.id} | Reason: ${reason}`);
-      });
-
+    const updatedRoom = roomManager.leaveRoom(socket.id);
+    if (updatedRoom) {
+      // Broadcast updated player list & potentially new hostId to remaining players
+      io.to(updatedRoom.roomCode).emit('room_updated', updatedRoom.toPublicState());
+    }
+  });
 }

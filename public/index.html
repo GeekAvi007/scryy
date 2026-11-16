@@ -3,16 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Skribbl Clone - Backend Test</title>
+  <title>Skribbl Clone — Milestone 2</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Skribbl Clone — Milestone 1 Handshake</h1>
-  <p>Status: <strong id="status">Disconnected</strong></p>
-  <button id="pingBtn">Send Ping to Server</button>
-  <pre id="log"></pre>
+  <h1>Skribbl Clone — Room Lobby</h1>
+  <p id="errorBanner" style="color: red; font-weight: bold;"></p>
 
-  <!-- Automatically served by Socket.io on your Node server -->
+  <!-- SCREEN 1: LOBBY -->
+  <div id="lobbyScreen">
+    <input id="usernameInput" type="text" placeholder="Enter your username" maxlength="16" />
+    <br /><br />
+    <button id="createRoomBtn">Create New Room</button>
+    <hr />
+    <input id="roomCodeInput" type="text" placeholder="6-char Room Code" maxlength="6" />
+    <button id="joinRoomBtn">Join Room</button>
+  </div>
+
+  <!-- SCREEN 2: WAITING ROOM -->
+  <div id="roomScreen" style="display: none;">
+    <h2>Room Code: <span id="displayRoomCode"></span></h2>
+    <p>Status: <strong id="displayStatus"></strong></p>
+    <h3>Players:</h3>
+    <ul id="playerList"></ul>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
 </body>
