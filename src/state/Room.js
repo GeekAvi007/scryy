@@ -1,19 +1,21 @@
 import { GAME_CONFIG, ROOM_STATUS } from '../config/constants.js';
+import { getRandomWord } from '../data/words.js';
 
 export class Room {
   constructor(roomCode, hostSocketId, hostUsername) {
     this.roomCode = roomCode;
     this.hostId = hostSocketId;
-    this.status = ROOM_STATUS.LOBBY;
+    this.status = ROOM_STATUS.DRAWING;
 
     // Map<socketId, { id, username, score, hasGuessed }>
     this.players = new Map();
     this.addPlayer(hostSocketId, hostUsername);
 
-    // Game state placeholders (used in Milestones 3–5)
-    this.currentDrawerId = null;
-    this.currentWord = null;
-    this.roundNumber = 0;
+    // Temporarily assign host as drawer & pick a word to test Milestone 4
+    this.currentDrawerId = hostSocketId;
+    this.currentWord = getRandomWord();
+    this.roundStartTime = Date.now();
+    this.roundNumber = 1;
     this.strokeHistory = [];
     this.timerInterval = null;
   }
@@ -28,7 +30,6 @@ export class Room {
       throw new Error('Username must be between 1 and 16 characters.');
     }
 
-    // Prevent duplicate names in the same room (case-insensitive)
     for (const player of this.players.values()) {
       if (player.username.toLowerCase() === cleanName.toLowerCase()) {
         throw new Error(`Username "${cleanName}" is already taken in this room.`);
@@ -50,15 +51,33 @@ export class Room {
     const removed = this.players.delete(socketId);
     if (!removed) return;
 
-    // Host Migration: If the host left and players remain, promote the oldest player
     if (this.hostId === socketId && this.players.size > 0) {
       const nextHostId = this.players.keys().next().value;
       this.hostId = nextHostId;
+      if (this.currentDrawerId === socketId) {
+        this.currentDrawerId = nextHostId;
+      }
     }
+  }
+
+  addStroke(stroke) {
+    this.strokeHistory.push(stroke);
+  }
+
+  clearStrokes() {
+    this.strokeHistory = [];
   }
 
   isEmpty() {
     return this.players.size === 0;
+  }
+
+  getMaskedWord() {
+    if (!this.currentWord) return '';
+    return this.currentWord
+      .split('')
+      .map((char) => (char === ' ' ? '  ' : '_'))
+      .join(' ');
   }
 
   // Serializes safe room data to send to clients (NEVER expose currentWord here!)
@@ -68,6 +87,7 @@ export class Room {
       hostId: this.hostId,
       status: this.status,
       currentDrawerId: this.currentDrawerId,
+      maskedWord: this.getMaskedWord(),
       roundNumber: this.roundNumber,
       players: Array.from(this.players.values()),
     };

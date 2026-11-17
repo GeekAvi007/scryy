@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Skribbl Clone — Milestone 2</title>
+  <title>Skribbl Clone — Milestone 4</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Skribbl Clone — Room Lobby</h1>
+  <h1>Skribbl Clone — Live Guessing & Chat</h1>
   <p id="errorBanner" style="color: red; font-weight: bold;"></p>
 
   <!-- SCREEN 1: LOBBY -->
@@ -20,12 +20,34 @@
     <button id="joinRoomBtn">Join Room</button>
   </div>
 
-  <!-- SCREEN 2: WAITING ROOM -->
+  <!-- SCREEN 2: ROOM, CANVAS & CHAT -->
   <div id="roomScreen" style="display: none;">
-    <h2>Room Code: <span id="displayRoomCode"></span></h2>
-    <p>Status: <strong id="displayStatus"></strong></p>
-    <h3>Players:</h3>
-    <ul id="playerList"></ul>
+    <h2>Room: <span id="displayRoomCode"></span> | <span id="roleBadge"></span></h2>
+    <div class="word-banner">Word: <span id="wordDisplay"></span></div>
+
+    <div class="game-layout">
+      <div>
+        <canvas id="drawCanvas" width="600" height="450"></canvas>
+        <div id="drawerToolbar" class="toolbar">
+          <label>Color: <input type="color" id="colorPicker" value="#000000" /></label>
+          <label>Size: <input type="range" id="sizePicker" min="2" max="20" value="4" /></label>
+          <button id="clearBtn">Clear Board</button>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div>
+          <h3>Players</h3>
+          <ul id="playerList"></ul>
+        </div>
+
+        <div id="chatBox"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" type="text" placeholder="Type your guess here..." autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
