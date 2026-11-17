@@ -1,5 +1,6 @@
 import { roomManager } from '../state/RoomManager.js';
-import { ROOM_STATUS } from '../config/constants.js';
+import { ROOM_STATUS, RATE_LIMITS } from '../config/constants.js';
+import { rateLimiter } from '../utils/rateLimiter.js';
 import {
   calculateGuesserPoints,
   calculateDrawerPoints,
@@ -8,22 +9,27 @@ import {
 import { checkEarlyRoundEnd } from '../engine/GameLoop.js';
 
 export function registerChatEvents(io, socket) {
-  socket.on('send_message', ({ message }) => {
+  socket.on('send_message', (payload) => {
+    if (!rateLimiter.allow(socket.id, 'send_message', RATE_LIMITS.CHAT_MAX_PER_3_SEC, 3000)) {
+      return socket.emit('system_notice', {
+        text: 'You are sending messages too fast. Slow down!',
+      });
+    }
+
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room) return;
 
     const player = room.players.get(socket.id);
     if (!player) return;
 
-    if (typeof message !== 'string') return;
-    const cleanMsg = message.trim().slice(0, 120);
+    if (!payload || typeof payload.message !== 'string') return;
+    const cleanMsg = payload.message.trim().slice(0, 120);
     if (!cleanMsg) return;
 
     const isDrawingPhase = room.status === ROOM_STATUS.DRAWING;
     const isDrawer = room.currentDrawerId === socket.id;
     const secretWord = room.currentWord?.toLowerCase();
 
-    // 1. Prevent drawer or already-guessed players from leaking the word during DRAWING
     if (isDrawingPhase && (isDrawer || player.hasGuessed) && secretWord) {
       if (cleanMsg.toLowerCase().includes(secretWord)) {
         return socket.emit('system_notice', {
@@ -32,7 +38,6 @@ export function registerChatEvents(io, socket) {
       }
     }
 
-    // 2. Check guesses only during active DRAWING phase
     if (isDrawingPhase && !isDrawer && !player.hasGuessed && secretWord) {
       if (cleanMsg.toLowerCase() === secretWord) {
         player.hasGuessed = true;
@@ -54,8 +59,6 @@ export function registerChatEvents(io, socket) {
         });
 
         io.to(room.roomCode).emit('room_updated', room.toPublicState());
-
-        // End round early if every guesser has now solved the word
         checkEarlyRoundEnd(io, room);
         return;
       }
@@ -68,7 +71,6 @@ export function registerChatEvents(io, socket) {
       }
     }
 
-    // 3. Regular chat broadcast
     io.to(room.roomCode).emit('chat_message', {
       sender: player.username,
       text: cleanMsg,

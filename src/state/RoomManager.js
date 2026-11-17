@@ -3,9 +3,7 @@ import { generateUniqueRoomCode } from '../utils/roomCodeGenerator.js';
 
 class RoomManager {
   constructor() {
-    // Map<roomCode, Room>
     this.rooms = new Map();
-    // Reverse lookup: Map<socketId, roomCode> for instant O(1) disconnect handling
     this.socketToRoom = new Map();
   }
 
@@ -19,6 +17,10 @@ class RoomManager {
   }
 
   joinRoom(roomCode, socketId, username) {
+    if (typeof roomCode !== 'string') {
+      throw new Error('Invalid room code.');
+    }
+
     const normalizedCode = roomCode.trim().toUpperCase();
     const room = this.rooms.get(normalizedCode);
 
@@ -43,23 +45,22 @@ class RoomManager {
 
   leaveRoom(socketId) {
     const roomCode = this.socketToRoom.get(socketId);
-    if (!roomCode) return null;
+    if (!roomCode) return { room: null, removedPlayer: null };
 
     this.socketToRoom.delete(socketId);
     const room = this.rooms.get(roomCode);
-    if (!room) return null;
+    if (!room) return { room: null, removedPlayer: null };
 
-    room.removePlayer(socketId);
+    const removedPlayer = room.removePlayer(socketId);
 
-    // Garbage collection: destroy empty rooms to prevent memory leaks
     if (room.isEmpty()) {
-      if (room.timerInterval) clearInterval(room.timerInterval);
+      room.clearTimers();
       this.rooms.delete(roomCode);
       console.log(`[ROOM DELETED] ${roomCode} (empty)`);
-      return null;
+      return { room: null, removedPlayer };
     }
 
-    return room;
+    return { room, removedPlayer };
   }
 }
 

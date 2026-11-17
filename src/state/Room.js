@@ -10,7 +10,6 @@ export class Room {
     this.players = new Map();
     this.addPlayer(hostSocketId, hostUsername);
 
-    // Turn & round state
     this.currentDrawerId = null;
     this.currentWord = null;
     this.wordChoices = [];
@@ -19,7 +18,6 @@ export class Room {
     this.roundStartTime = null;
     this.timeLeft = 0;
 
-    // Ordered list of player socket IDs for turn rotation
     this.drawerOrder = [];
     this.drawerIndex = -1;
 
@@ -30,6 +28,10 @@ export class Room {
   addPlayer(socketId, username) {
     if (this.players.size >= GAME_CONFIG.MAX_PLAYERS) {
       throw new Error('Room is full.');
+    }
+
+    if (typeof username !== 'string') {
+      throw new Error('Invalid username.');
     }
 
     const cleanName = username.trim();
@@ -52,7 +54,6 @@ export class Room {
 
     this.players.set(socketId, player);
 
-    // If game is already running, add late joiner to end of rotation
     if (this.status !== ROOM_STATUS.LOBBY && !this.drawerOrder.includes(socketId)) {
       this.drawerOrder.push(socketId);
     }
@@ -61,14 +62,26 @@ export class Room {
   }
 
   removePlayer(socketId) {
-    const removed = this.players.delete(socketId);
-    if (!removed) return;
+    const removedPlayer = this.players.get(socketId);
+    if (!removedPlayer) return null;
 
-    this.drawerOrder = this.drawerOrder.filter((id) => id !== socketId);
+    this.players.delete(socketId);
 
+    // Adjust drawerIndex if the removed player sat at or before the current index
+    const removedOrderIdx = this.drawerOrder.indexOf(socketId);
+    if (removedOrderIdx !== -1) {
+      this.drawerOrder.splice(removedOrderIdx, 1);
+      if (removedOrderIdx <= this.drawerIndex) {
+        this.drawerIndex = Math.max(-1, this.drawerIndex - 1);
+      }
+    }
+
+    // Host migration
     if (this.hostId === socketId && this.players.size > 0) {
       this.hostId = this.players.keys().next().value;
     }
+
+    return removedPlayer;
   }
 
   resetPlayerGuesses() {
@@ -97,7 +110,6 @@ export class Room {
       }
     }
 
-    // Never reveal the very last hidden letter
     if (unrevealed.length <= 1) return;
 
     const randomIdx = unrevealed[Math.floor(Math.random() * unrevealed.length)];
@@ -116,7 +128,11 @@ export class Room {
   }
 
   addStroke(stroke) {
+    if (this.strokeHistory.length >= GAME_CONFIG.MAX_STROKES_PER_ROUND) {
+      return false;
+    }
     this.strokeHistory.push(stroke);
+    return true;
   }
 
   clearStrokes() {

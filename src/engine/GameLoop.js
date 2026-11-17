@@ -4,7 +4,6 @@ import { getRandomWords } from '../data/words.js';
 export function startGame(io, room) {
   room.clearTimers();
 
-  // Reset scores and build deterministic turn order
   for (const player of room.players.values()) {
     player.score = 0;
     player.hasGuessed = false;
@@ -20,18 +19,20 @@ export function startGame(io, room) {
 export function advanceTurn(io, room) {
   room.clearTimers();
 
-  // Find next valid connected player in drawerOrder
+  if (room.players.size < GAME_CONFIG.MIN_PLAYERS_TO_START) {
+    return endGame(io, room, 'Not enough players to continue.');
+  }
+
   let nextDrawerId = null;
   while (room.drawerOrder.length > 0) {
     room.drawerIndex++;
 
-    // Completed a full cycle of players -> advance to next round
     if (room.drawerIndex >= room.drawerOrder.length) {
       room.drawerIndex = 0;
       room.roundNumber++;
 
       if (room.roundNumber > GAME_CONFIG.TOTAL_ROUNDS) {
-        return endGame(io, room);
+        return endGame(io, room, 'All rounds completed!');
       }
     }
 
@@ -45,11 +46,10 @@ export function advanceTurn(io, room) {
     }
   }
 
-  if (!nextDrawerId || room.players.size < GAME_CONFIG.MIN_PLAYERS_TO_START) {
-    return endGame(io, room);
+  if (!nextDrawerId) {
+    return endGame(io, room, 'No available drawers.');
   }
 
-  // Enter WORD_SELECT phase
   room.status = ROOM_STATUS.WORD_SELECT;
   room.currentDrawerId = nextDrawerId;
   room.currentWord = null;
@@ -62,12 +62,10 @@ export function advanceTurn(io, room) {
   io.to(room.roomCode).emit('canvas_cleared');
   io.to(room.roomCode).emit('room_updated', room.toPublicState());
 
-  // Send 3 word choices ONLY to the active drawer
   io.to(room.currentDrawerId).emit('word_choices', {
     words: room.wordChoices,
   });
 
-  // Countdown for word selection; auto-pick first word if drawer stalls
   room.timerInterval = setInterval(() => {
     room.timeLeft--;
     io.to(room.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
@@ -100,7 +98,6 @@ export function beginDrawingPhase(io, room, chosenWord) {
     room.timeLeft--;
     io.to(room.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
 
-    // Progressive letter hints at 50% and 25% remaining time
     if (room.timeLeft === halfTime || room.timeLeft === quarterTime) {
       room.revealRandomHint();
       io.to(room.roomCode).emit('hint_updated', {
@@ -121,13 +118,15 @@ export function checkEarlyRoundEnd(io, room) {
 }
 
 export function endRound(io, room, reason) {
-  if (room.status === ROOM_STATUS.ROUND_END) return;
+  if (room.status === ROOM_STATUS.ROUND_END || room.status === ROOM_STATUS.GAME_OVER) {
+    return;
+  }
 
   room.clearTimers();
   room.status = ROOM_STATUS.ROUND_END;
   room.timeLeft = GAME_CONFIG.ROUND_END_DURATION_SEC;
 
-  const revealedWord = room.currentWord;
+  const revealedWord = room.currentWord || '(none)';
 
   io.to(room.roomCode).emit('round_ended', {
     reason,
@@ -145,7 +144,7 @@ export function endRound(io, room, reason) {
   }, 1000);
 }
 
-export function endGame(io, room) {
+export function endGame(io, room, reason = 'Game finished!') {
   room.clearTimers();
   room.status = ROOM_STATUS.GAME_OVER;
   room.currentDrawerId = null;
@@ -156,6 +155,33 @@ export function endGame(io, room) {
     (a, b) => b.score - a.score
   );
 
-  io.to(room.roomCode).emit('game_over', { leaderboard });
+  io.to(room.roomCode).emit('game_over', { reason, leaderboard });
   io.to(room.roomCode).emit('room_updated', room.toPublicState());
+}
+
+export function handlePlayerDisconnect(io, room, disconnectedSocketId) {
+  const isActiveGame =
+    room.status === ROOM_STATUS.WORD_SELECT ||
+    room.status === ROOM_STATUS.DRAWING ||
+    room.status === ROOM_STATUS.ROUND_END;
+
+  if (!isActiveGame) return;
+
+  // 1. Check if fewer than 2 players remain
+  if (room.players.size < GAME_CONFIG.MIN_PLAYERS_TO_START) {
+    return endGame(io, room, 'Game ended because fewer than 2 players remain.');
+  }
+
+  // 2. Check if the active drawer left mid-turn
+  if (room.currentDrawerId === disconnectedSocketId) {
+    if (room.status === ROOM_STATUS.WORD_SELECT) {
+      advanceTurn(io, room);
+    } else if (room.status === ROOM_STATUS.DRAWING) {
+      endRound(io, room, 'The drawer disconnected!');
+    }
+    return;
+  }
+
+  // 3. A guesser left: check if all remaining guessers have already solved the word
+  checkEarlyRoundEnd(io, room);
 }

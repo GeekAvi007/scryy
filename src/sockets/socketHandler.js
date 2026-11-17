@@ -2,6 +2,8 @@ import { registerRoomEvents } from './roomEvents.js';
 import { registerDrawEvents } from './drawEvents.js';
 import { registerChatEvents } from './chatEvents.js';
 import { roomManager } from '../state/RoomManager.js';
+import { handlePlayerDisconnect } from '../engine/GameLoop.js';
+import { rateLimiter } from '../utils/rateLimiter.js';
 
 export function registerSocketHandlers(io, socket) {
   console.log(`[CONNECTED] Socket ID: ${socket.id}`);
@@ -13,14 +15,19 @@ export function registerSocketHandlers(io, socket) {
   socket.on('disconnect', (reason) => {
     console.log(`[DISCONNECTED] Socket ID: ${socket.id} | Reason: ${reason}`);
 
-    const updatedRoom = roomManager.leaveRoom(socket.id);
-    if (updatedRoom) {
-      io.to(updatedRoom.roomCode).emit('room_updated', updatedRoom.toPublicState());
+    // Clean up rate limiter memory for this socket
+    rateLimiter.clearSocket(socket.id);
 
-      // If host migrated to a new drawer in Milestone 4 testing, send them the word
-      io.to(updatedRoom.currentDrawerId).emit('secret_word', {
-        word: updatedRoom.currentWord,
+    const { room, removedPlayer } = roomManager.leaveRoom(socket.id);
+    if (room && removedPlayer) {
+      io.to(room.roomCode).emit('system_notice', {
+        text: `${removedPlayer.username} left the room.`,
       });
+
+      // Handle mid-turn drawer leave, solo-player abort, or early round completion
+      handlePlayerDisconnect(io, room, socket.id);
+
+      io.to(room.roomCode).emit('room_updated', room.toPublicState());
     }
   });
 }
