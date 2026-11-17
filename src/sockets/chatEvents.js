@@ -1,9 +1,11 @@
 import { roomManager } from '../state/RoomManager.js';
+import { ROOM_STATUS } from '../config/constants.js';
 import {
   calculateGuesserPoints,
   calculateDrawerPoints,
   isCloseGuess,
 } from '../engine/ScoreCalculator.js';
+import { checkEarlyRoundEnd } from '../engine/GameLoop.js';
 
 export function registerChatEvents(io, socket) {
   socket.on('send_message', ({ message }) => {
@@ -17,11 +19,12 @@ export function registerChatEvents(io, socket) {
     const cleanMsg = message.trim().slice(0, 120);
     if (!cleanMsg) return;
 
+    const isDrawingPhase = room.status === ROOM_STATUS.DRAWING;
     const isDrawer = room.currentDrawerId === socket.id;
     const secretWord = room.currentWord?.toLowerCase();
 
-    // 1. Prevent drawer or already-guessed players from leaking the answer in chat
-    if ((isDrawer || player.hasGuessed) && secretWord) {
+    // 1. Prevent drawer or already-guessed players from leaking the word during DRAWING
+    if (isDrawingPhase && (isDrawer || player.hasGuessed) && secretWord) {
       if (cleanMsg.toLowerCase().includes(secretWord)) {
         return socket.emit('system_notice', {
           text: 'You cannot type the secret word in chat!',
@@ -29,8 +32,8 @@ export function registerChatEvents(io, socket) {
       }
     }
 
-    // 2. Check if an active guesser matched the secret word
-    if (!isDrawer && !player.hasGuessed && secretWord) {
+    // 2. Check guesses only during active DRAWING phase
+    if (isDrawingPhase && !isDrawer && !player.hasGuessed && secretWord) {
       if (cleanMsg.toLowerCase() === secretWord) {
         player.hasGuessed = true;
 
@@ -42,22 +45,21 @@ export function registerChatEvents(io, socket) {
           drawer.score += calculateDrawerPoints(room.players.size);
         }
 
-        // Reveal the real word privately to the player who just guessed it
         socket.emit('secret_word', { word: room.currentWord });
 
-        // Broadcast success without revealing the word to remaining guessers
         io.to(room.roomCode).emit('correct_guess', {
           playerId: player.id,
           username: player.username,
           pointsEarned: guesserPoints,
         });
 
-        // Push updated scores & hasGuessed badges to everyone
         io.to(room.roomCode).emit('room_updated', room.toPublicState());
+
+        // End round early if every guesser has now solved the word
+        checkEarlyRoundEnd(io, room);
         return;
       }
 
-      // 3. Check for a 1-letter typo ("close guess") and notify ONLY the guesser
       if (isCloseGuess(cleanMsg, secretWord)) {
         socket.emit('system_notice', {
           text: `'${cleanMsg}' is very close!`,
@@ -66,7 +68,7 @@ export function registerChatEvents(io, socket) {
       }
     }
 
-    // 4. Regular chat message broadcast to the room
+    // 3. Regular chat broadcast
     io.to(room.roomCode).emit('chat_message', {
       sender: player.username,
       text: cleanMsg,

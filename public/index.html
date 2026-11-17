@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Skribbl Clone — Milestone 4</title>
+  <title>Skribbl Clone — Milestone 5</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Skribbl Clone — Live Guessing & Chat</h1>
+  <h1>Skribbl Clone — Full Game Loop</h1>
   <p id="errorBanner" style="color: red; font-weight: bold;"></p>
 
   <!-- SCREEN 1: LOBBY -->
@@ -20,10 +20,36 @@
     <button id="joinRoomBtn">Join Room</button>
   </div>
 
-  <!-- SCREEN 2: ROOM, CANVAS & CHAT -->
+  <!-- SCREEN 2: ROOM & GAMEPLAY -->
   <div id="roomScreen" style="display: none;">
-    <h2>Room: <span id="displayRoomCode"></span> | <span id="roleBadge"></span></h2>
-    <div class="word-banner">Word: <span id="wordDisplay"></span></div>
+    <div class="top-bar">
+      <div>
+        <strong>Room:</strong> <span id="displayRoomCode"></span> |
+        <strong>Round:</strong> <span id="roundDisplay">0/3</span> |
+        <strong>Status:</strong> <span id="statusDisplay">LOBBY</span>
+      </div>
+      <div class="word-banner" id="wordDisplay">WAITING</div>
+      <div><strong>Time:</strong> <span id="timerDisplay">0</span>s</div>
+    </div>
+
+    <!-- HOST START BUTTON -->
+    <div id="lobbyControls" class="overlay-box" style="display: none;">
+      <p id="lobbyWaitText">Waiting for host to start the game...</p>
+      <button id="startGameBtn" style="display: none;">Start Game</button>
+    </div>
+
+    <!-- DRAWER 3-WORD PICKER -->
+    <div id="wordSelectBox" class="overlay-box" style="display: none;">
+      <strong>Choose a word to draw:</strong>
+      <div id="wordChoicesContainer" style="margin-top: 8px;"></div>
+    </div>
+
+    <!-- GAME OVER PODIUM -->
+    <div id="gameOverBox" class="overlay-box" style="display: none;">
+      <h3>🏆 Game Over — Final Standings</h3>
+      <ol id="leaderboardList"></ol>
+      <button id="playAgainBtn" style="display: none;">Play Again</button>
+    </div>
 
     <div class="game-layout">
       <div>

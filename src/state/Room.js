@@ -1,21 +1,28 @@
 import { GAME_CONFIG, ROOM_STATUS } from '../config/constants.js';
-import { getRandomWord } from '../data/words.js';
 
 export class Room {
   constructor(roomCode, hostSocketId, hostUsername) {
     this.roomCode = roomCode;
     this.hostId = hostSocketId;
-    this.status = ROOM_STATUS.DRAWING;
+    this.status = ROOM_STATUS.LOBBY;
 
     // Map<socketId, { id, username, score, hasGuessed }>
     this.players = new Map();
     this.addPlayer(hostSocketId, hostUsername);
 
-    // Temporarily assign host as drawer & pick a word to test Milestone 4
-    this.currentDrawerId = hostSocketId;
-    this.currentWord = getRandomWord();
-    this.roundStartTime = Date.now();
-    this.roundNumber = 1;
+    // Turn & round state
+    this.currentDrawerId = null;
+    this.currentWord = null;
+    this.wordChoices = [];
+    this.revealedIndices = new Set();
+    this.roundNumber = 0;
+    this.roundStartTime = null;
+    this.timeLeft = 0;
+
+    // Ordered list of player socket IDs for turn rotation
+    this.drawerOrder = [];
+    this.drawerIndex = -1;
+
     this.strokeHistory = [];
     this.timerInterval = null;
   }
@@ -44,6 +51,12 @@ export class Room {
     };
 
     this.players.set(socketId, player);
+
+    // If game is already running, add late joiner to end of rotation
+    if (this.status !== ROOM_STATUS.LOBBY && !this.drawerOrder.includes(socketId)) {
+      this.drawerOrder.push(socketId);
+    }
+
     return player;
   }
 
@@ -51,13 +64,55 @@ export class Room {
     const removed = this.players.delete(socketId);
     if (!removed) return;
 
+    this.drawerOrder = this.drawerOrder.filter((id) => id !== socketId);
+
     if (this.hostId === socketId && this.players.size > 0) {
-      const nextHostId = this.players.keys().next().value;
-      this.hostId = nextHostId;
-      if (this.currentDrawerId === socketId) {
-        this.currentDrawerId = nextHostId;
+      this.hostId = this.players.keys().next().value;
+    }
+  }
+
+  resetPlayerGuesses() {
+    for (const player of this.players.values()) {
+      player.hasGuessed = false;
+    }
+  }
+
+  haveAllGuessersGuessed() {
+    let guesserCount = 0;
+    for (const player of this.players.values()) {
+      if (player.id === this.currentDrawerId) continue;
+      guesserCount++;
+      if (!player.hasGuessed) return false;
+    }
+    return guesserCount > 0;
+  }
+
+  revealRandomHint() {
+    if (!this.currentWord) return;
+    const unrevealed = [];
+
+    for (let i = 0; i < this.currentWord.length; i++) {
+      if (this.currentWord[i] !== ' ' && !this.revealedIndices.has(i)) {
+        unrevealed.push(i);
       }
     }
+
+    // Never reveal the very last hidden letter
+    if (unrevealed.length <= 1) return;
+
+    const randomIdx = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+    this.revealedIndices.add(randomIdx);
+  }
+
+  getMaskedWord() {
+    if (!this.currentWord) return '';
+    return this.currentWord
+      .split('')
+      .map((char, idx) => {
+        if (char === ' ') return '  ';
+        return this.revealedIndices.has(idx) ? char.toUpperCase() : '_';
+      })
+      .join(' ');
   }
 
   addStroke(stroke) {
@@ -68,19 +123,17 @@ export class Room {
     this.strokeHistory = [];
   }
 
+  clearTimers() {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+
   isEmpty() {
     return this.players.size === 0;
   }
 
-  getMaskedWord() {
-    if (!this.currentWord) return '';
-    return this.currentWord
-      .split('')
-      .map((char) => (char === ' ' ? '  ' : '_'))
-      .join(' ');
-  }
-
-  // Serializes safe room data to send to clients (NEVER expose currentWord here!)
   toPublicState() {
     return {
       roomCode: this.roomCode,
@@ -89,6 +142,8 @@ export class Room {
       currentDrawerId: this.currentDrawerId,
       maskedWord: this.getMaskedWord(),
       roundNumber: this.roundNumber,
+      totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
+      timeLeft: this.timeLeft,
       players: Array.from(this.players.values()),
     };
   }

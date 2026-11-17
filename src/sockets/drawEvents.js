@@ -1,14 +1,15 @@
 import { roomManager } from '../state/RoomManager.js';
+import { ROOM_STATUS } from '../config/constants.js';
 
 export function registerDrawEvents(io, socket) {
   socket.on('draw_stroke', (stroke) => {
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room) return;
 
-    // Server-Authoritative Check: Only the designated drawer may draw
+    // Only allow drawing during active DRAWING phase by the active drawer
+    if (room.status !== ROOM_STATUS.DRAWING) return;
     if (room.currentDrawerId !== socket.id) return;
 
-    // Basic payload validation to ensure normalized coordinates (0.0 to 1.0)
     if (
       !stroke ||
       typeof stroke.x0 !== 'number' ||
@@ -29,14 +30,13 @@ export function registerDrawEvents(io, socket) {
     };
 
     room.addStroke(cleanStroke);
-
-    // Broadcast to everyone in the room EXCEPT the sender
     socket.to(room.roomCode).emit('draw_stroke', cleanStroke);
   });
 
   socket.on('clear_canvas', () => {
     const room = roomManager.getRoomBySocketId(socket.id);
-    if (!room || room.currentDrawerId !== socket.id) return;
+    if (!room || room.status !== ROOM_STATUS.DRAWING) return;
+    if (room.currentDrawerId !== socket.id) return;
 
     room.clearStrokes();
     io.to(room.roomCode).emit('canvas_cleared');
