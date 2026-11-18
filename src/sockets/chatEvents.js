@@ -19,7 +19,7 @@ export function registerChatEvents(io, socket) {
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room) return;
 
-    const player = room.players.get(socket.id);
+    const player = room.getPlayerBySocketId(socket.id);
     if (!player) return;
 
     if (!payload || typeof payload.message !== 'string') return;
@@ -27,7 +27,7 @@ export function registerChatEvents(io, socket) {
     if (!cleanMsg) return;
 
     const isDrawingPhase = room.status === ROOM_STATUS.DRAWING;
-    const isDrawer = room.currentDrawerId === socket.id;
+    const isDrawer = room.currentDrawerId === player.id;
     const secretWord = room.currentWord?.toLowerCase();
 
     if (isDrawingPhase && (isDrawer || player.hasGuessed) && secretWord) {

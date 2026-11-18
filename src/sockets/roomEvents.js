@@ -14,10 +14,15 @@ export function registerRoomEvents(io, socket) {
         return socket.emit('room_error', { message: 'You are already in a room.' });
       }
 
-      const room = roomManager.createRoom(socket.id, payload?.username);
+      const { room, player } = roomManager.createRoom(socket.id, payload?.username);
       socket.join(room.roomCode);
 
-      console.log(`[ROOM CREATED] ${room.roomCode} by ${payload?.username}`);
+      console.log(`[ROOM CREATED] ${room.roomCode} by ${player.username}`);
+      socket.emit('session_credentials', {
+        roomCode: room.roomCode,
+        playerId: player.id,
+        playerToken: player.playerToken,
+      });
       socket.emit('room_joined', room.toPublicState());
     } catch (err) {
       socket.emit('room_error', { message: err.message });
@@ -34,10 +39,19 @@ export function registerRoomEvents(io, socket) {
         return socket.emit('room_error', { message: 'You are already in a room.' });
       }
 
-      const room = roomManager.joinRoom(payload?.roomCode, socket.id, payload?.username);
+      const { room, player } = roomManager.joinRoom(
+        payload?.roomCode,
+        socket.id,
+        payload?.username
+      );
       socket.join(room.roomCode);
 
-      console.log(`[PLAYER JOINED] ${payload?.username} -> ${room.roomCode}`);
+      console.log(`[PLAYER JOINED] ${player.username} -> ${room.roomCode}`);
+      socket.emit('session_credentials', {
+        roomCode: room.roomCode,
+        playerId: player.id,
+        playerToken: player.playerToken,
+      });
       socket.emit('room_joined', room.toPublicState());
 
       if (room.strokeHistory.length > 0) {
@@ -46,18 +60,65 @@ export function registerRoomEvents(io, socket) {
 
       io.to(room.roomCode).emit('room_updated', room.toPublicState());
       io.to(room.roomCode).emit('system_notice', {
-        text: `${payload?.username.trim()} joined the room.`,
+        text: `${player.username} joined the room.`,
       });
     } catch (err) {
       socket.emit('room_error', { message: err.message });
     }
   });
 
+  socket.on('reconnect_player', (payload) => {
+    const result = roomManager.reconnectPlayer(
+      payload?.roomCode,
+      payload?.playerToken,
+      socket.id
+    );
+
+    if (!result) {
+      return socket.emit('reconnect_failed');
+    }
+
+    const { room, player } = result;
+    socket.join(room.roomCode);
+
+    console.log(`[PLAYER RECONNECTED] ${player.username} -> ${room.roomCode}`);
+
+    socket.emit('session_credentials', {
+      roomCode: room.roomCode,
+      playerId: player.id,
+      playerToken: player.playerToken,
+    });
+    socket.emit('room_joined', room.toPublicState());
+
+    // Restore canvas strokes
+    if (room.strokeHistory.length > 0) {
+      socket.emit('canvas_sync', room.strokeHistory);
+    }
+
+    // Restore private drawer/guesser state if mid-turn
+    const isDrawer = room.currentDrawerId === player.id;
+    if (room.status === ROOM_STATUS.WORD_SELECT && isDrawer) {
+      socket.emit('word_choices', { words: room.wordChoices });
+    } else if (
+      room.status === ROOM_STATUS.DRAWING &&
+      (isDrawer || player.hasGuessed) &&
+      room.currentWord
+    ) {
+      socket.emit('secret_word', { word: room.currentWord });
+    }
+
+    io.to(room.roomCode).emit('room_updated', room.toPublicState());
+    io.to(room.roomCode).emit('system_notice', {
+      text: `${player.username} reconnected!`,
+    });
+  });
+
   socket.on('start_game', () => {
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room) return;
 
-    if (room.hostId !== socket.id) {
+    const player = room.getPlayerBySocketId(socket.id);
+    if (!player || room.hostId !== player.id) {
       return socket.emit('room_error', { message: 'Only the host can start the game.' });
     }
 
@@ -78,7 +139,8 @@ export function registerRoomEvents(io, socket) {
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room) return;
 
-    if (room.currentDrawerId !== socket.id) return;
+    const player = room.getPlayerBySocketId(socket.id);
+    if (!player || room.currentDrawerId !== player.id) return;
     if (room.status !== ROOM_STATUS.WORD_SELECT) return;
 
     beginDrawingPhase(io, room, payload?.word);

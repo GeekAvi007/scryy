@@ -1,14 +1,16 @@
+import crypto from 'crypto';
 import { GAME_CONFIG, ROOM_STATUS } from '../config/constants.js';
 
 export class Room {
   constructor(roomCode, hostSocketId, hostUsername) {
     this.roomCode = roomCode;
-    this.hostId = hostSocketId;
     this.status = ROOM_STATUS.LOBBY;
 
-    // Map<socketId, { id, username, score, hasGuessed }>
+    // Map<playerId, { id, socketId, playerToken, username, score, hasGuessed, connected, disconnectTimer }>
     this.players = new Map();
-    this.addPlayer(hostSocketId, hostUsername);
+
+    const hostPlayer = this.addPlayer(hostSocketId, hostUsername);
+    this.hostId = hostPlayer.id;
 
     this.currentDrawerId = null;
     this.currentWord = null;
@@ -18,6 +20,7 @@ export class Room {
     this.roundStartTime = null;
     this.timeLeft = 0;
 
+    // Ordered list of stable playerIds
     this.drawerOrder = [];
     this.drawerIndex = -1;
 
@@ -45,30 +48,61 @@ export class Room {
       }
     }
 
+    const playerId = crypto.randomUUID();
+    const playerToken = crypto.randomUUID();
+
     const player = {
-      id: socketId,
+      id: playerId,
+      socketId,
+      playerToken,
       username: cleanName,
       score: 0,
       hasGuessed: false,
+      connected: true,
+      disconnectTimer: null,
     };
 
-    this.players.set(socketId, player);
+    this.players.set(playerId, player);
 
-    if (this.status !== ROOM_STATUS.LOBBY && !this.drawerOrder.includes(socketId)) {
-      this.drawerOrder.push(socketId);
+    if (this.status !== ROOM_STATUS.LOBBY && !this.drawerOrder.includes(playerId)) {
+      this.drawerOrder.push(playerId);
     }
 
     return player;
   }
 
-  removePlayer(socketId) {
-    const removedPlayer = this.players.get(socketId);
+  getPlayerBySocketId(socketId) {
+    for (const player of this.players.values()) {
+      if (player.socketId === socketId) return player;
+    }
+    return null;
+  }
+
+  getPlayerByToken(playerToken) {
+    if (!playerToken) return null;
+    for (const player of this.players.values()) {
+      if (player.playerToken === playerToken) return player;
+    }
+    return null;
+  }
+
+  getDrawerSocketId() {
+    if (!this.currentDrawerId) return null;
+    return this.players.get(this.currentDrawerId)?.socketId || null;
+  }
+
+  removePlayer(playerId) {
+    const removedPlayer = this.players.get(playerId);
     if (!removedPlayer) return null;
 
-    this.players.delete(socketId);
+    if (removedPlayer.disconnectTimer) {
+      clearTimeout(removedPlayer.disconnectTimer);
+      removedPlayer.disconnectTimer = null;
+    }
 
-    // Adjust drawerIndex if the removed player sat at or before the current index
-    const removedOrderIdx = this.drawerOrder.indexOf(socketId);
+    this.players.delete(playerId);
+
+    const removedOrderIdx = this.drawerOrder.indexOf(playerId);
     if (removedOrderIdx !== -1) {
       this.drawerOrder.splice(removedOrderIdx, 1);
       if (removedOrderIdx <= this.drawerIndex) {
@@ -76,9 +110,12 @@ export class Room {
       }
     }
 
-    // Host migration
-    if (this.hostId === socketId && this.players.size > 0) {
-      this.hostId = this.players.keys().next().value;
+    // Host migration: prefer a currently connected player first
+    if (this.hostId === playerId && this.players.size > 0) {
+      const connectedPlayer = Array.from(this.players.values()).find((p) => p.connected);
+      this.hostId = connectedPlayer
+        ? connectedPlayer.id
+        : this.players.keys().next().value;
     }
 
     return removedPlayer;
@@ -144,12 +181,19 @@ export class Room {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
+    for (const player of this.players.values()) {
+      if (player.disconnectTimer) {
+        clearTimeout(player.disconnectTimer);
+        player.disconnectTimer = null;
+      }
+    }
   }
 
   isEmpty() {
     return this.players.size === 0;
   }
 
+  // Never expose playerToken or currentWord in public room state!
   toPublicState() {
     return {
       roomCode: this.roomCode,
@@ -160,7 +204,13 @@ export class Room {
       roundNumber: this.roundNumber,
       totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
       timeLeft: this.timeLeft,
-      players: Array.from(this.players.values()),
+      players: Array.from(this.players.values()).map((p) => ({
+        id: p.id,
+        username: p.username,
+        score: p.score,
+        hasGuessed: p.hasGuessed,
+        connected: p.connected,
+      })),
     };
   }
 }

@@ -11,10 +11,10 @@ export function registerDrawEvents(io, socket) {
     }
 
     const room = roomManager.getRoomBySocketId(socket.id);
-    if (!room) return;
+    if (!room || room.status !== ROOM_STATUS.DRAWING) return;
 
-    if (room.status !== ROOM_STATUS.DRAWING) return;
-    if (room.currentDrawerId !== socket.id) return;
+    const player = room.getPlayerBySocketId(socket.id);
+    if (!player || room.currentDrawerId !== player.id) return;
 
     if (
       !stroke ||
@@ -48,7 +48,9 @@ export function registerDrawEvents(io, socket) {
   socket.on('clear_canvas', () => {
     const room = roomManager.getRoomBySocketId(socket.id);
     if (!room || room.status !== ROOM_STATUS.DRAWING) return;
-    if (room.currentDrawerId !== socket.id) return;
+
+    const player = room.getPlayerBySocketId(socket.id);
+    if (!player || room.currentDrawerId !== player.id) return;
 
     room.clearStrokes();
     io.to(room.roomCode).emit('canvas_cleared');

@@ -62,9 +62,12 @@ export function advanceTurn(io, room) {
   io.to(room.roomCode).emit('canvas_cleared');
   io.to(room.roomCode).emit('room_updated', room.toPublicState());
 
-  io.to(room.currentDrawerId).emit('word_choices', {
-    words: room.wordChoices,
-  });
+  const drawerSocketId = room.getDrawerSocketId();
+  if (drawerSocketId) {
+    io.to(drawerSocketId).emit('word_choices', {
+      words: room.wordChoices,
+    });
+  }
 
   room.timerInterval = setInterval(() => {
     room.timeLeft--;
@@ -92,7 +95,11 @@ export function beginDrawingPhase(io, room, chosenWord) {
   const quarterTime = Math.floor(GAME_CONFIG.ROUND_DURATION_SEC * 0.25);
 
   io.to(room.roomCode).emit('room_updated', room.toPublicState());
-  io.to(room.currentDrawerId).emit('secret_word', { word: room.currentWord });
+
+  const drawerSocketId = room.getDrawerSocketId();
+  if (drawerSocketId) {
+    io.to(drawerSocketId).emit('secret_word', { word: room.currentWord });
+  }
 
   room.timerInterval = setInterval(() => {
     room.timeLeft--;
@@ -159,7 +166,7 @@ export function endGame(io, room, reason = 'Game finished!') {
   io.to(room.roomCode).emit('room_updated', room.toPublicState());
 }
 
-export function handlePlayerDisconnect(io, room, disconnectedSocketId) {
+export function handlePlayerDisconnect(io, room, disconnectedPlayerId) {
   const isActiveGame =
     room.status === ROOM_STATUS.WORD_SELECT ||
     room.status === ROOM_STATUS.DRAWING ||
@@ -167,13 +174,11 @@ export function handlePlayerDisconnect(io, room, disconnectedSocketId) {
 
   if (!isActiveGame) return;
 
-  // 1. Check if fewer than 2 players remain
   if (room.players.size < GAME_CONFIG.MIN_PLAYERS_TO_START) {
     return endGame(io, room, 'Game ended because fewer than 2 players remain.');
   }
 
-  // 2. Check if the active drawer left mid-turn
-  if (room.currentDrawerId === disconnectedSocketId) {
+  if (room.currentDrawerId === disconnectedPlayerId) {
     if (room.status === ROOM_STATUS.WORD_SELECT) {
       advanceTurn(io, room);
     } else if (room.status === ROOM_STATUS.DRAWING) {
@@ -182,6 +187,5 @@ export function handlePlayerDisconnect(io, room, disconnectedSocketId) {
     return;
   }
 
-  // 3. A guesser left: check if all remaining guessers have already solved the word
   checkEarlyRoundEnd(io, room);
 }

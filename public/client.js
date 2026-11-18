@@ -38,6 +38,8 @@ const chatBox = document.getElementById('chatBox');
 const chatForm = document.getElementById('chatForm');
 const chatInput = document.getElementById('chatInput');
 
+const SESSION_KEY = 'skribbl_session';
+let myPlayerId = null;
 let canDraw = false;
 let isDrawing = false;
 let lastPos = null;
@@ -56,8 +58,8 @@ function renderRoomState(room) {
   lobbyScreen.style.display = 'none';
   roomScreen.style.display = 'block';
 
-  const isHost = room.hostId === socket.id;
-  const isDrawer = room.currentDrawerId === socket.id;
+  const isHost = room.hostId === myPlayerId;
+  const isDrawer = room.currentDrawerId === myPlayerId;
   canDraw = isDrawer && room.status === 'DRAWING';
 
   displayRoomCode.textContent = room.roomCode;
@@ -65,12 +67,10 @@ function renderRoomState(room) {
   statusDisplay.textContent = room.status;
   timerDisplay.textContent = room.timeLeft;
 
-  // Reset knownSecretWord when a new turn begins
   if (room.status === 'WORD_SELECT' || room.status === 'LOBBY') {
     knownSecretWord = null;
   }
 
-  // Top banner word display
   if (room.status === 'LOBBY') {
     wordDisplay.textContent = 'WAITING FOR PLAYERS';
   } else if (room.status === 'WORD_SELECT') {
@@ -79,35 +79,31 @@ function renderRoomState(room) {
     wordDisplay.textContent = knownSecretWord || room.maskedWord;
   }
 
-  // Lobby start controls
   lobbyControls.style.display = room.status === 'LOBBY' ? 'block' : 'none';
   startGameBtn.style.display = isHost && room.status === 'LOBBY' ? 'inline-block' : 'none';
   lobbyWaitText.textContent = isHost
     ? 'Click Start Game once at least 2 players have joined.'
     : 'Waiting for the host to start the game...';
 
-  // Hide word picker unless actively selecting
   if (!isDrawer || room.status !== 'WORD_SELECT') {
     wordSelectBox.style.display = 'none';
   }
 
-  // Game Over box visibility
   gameOverBox.style.display = room.status === 'GAME_OVER' ? 'block' : 'none';
   playAgainBtn.style.display = isHost && room.status === 'GAME_OVER' ? 'inline-block' : 'none';
 
-  // Canvas permissions
   drawerToolbar.style.display = canDraw ? 'flex' : 'none';
   canvas.style.cursor = canDraw ? 'crosshair' : 'not-allowed';
 
-  // Player list
   playerList.innerHTML = '';
   room.players.forEach((p) => {
     const li = document.createElement('li');
     const hostTag = p.id === room.hostId ? ' (HOST)' : '';
     const drawerTag = p.id === room.currentDrawerId ? ' 🎨' : '';
-    const youTag = p.id === socket.id ? ' [YOU]' : '';
+    const youTag = p.id === myPlayerId ? ' [YOU]' : '';
     const guessedTag = p.hasGuessed ? ' ✅' : '';
-    li.textContent = `${p.username}${hostTag}${drawerTag}${youTag}${guessedTag} — ${p.score} pts`;
+    const offlineTag = p.connected ? '' : ' ⏳ (reconnecting...)';
+    li.textContent = `${p.username}${hostTag}${drawerTag}${youTag}${guessedTag}${offlineTag} — ${p.score} pts`;
     playerList.appendChild(li);
   });
 }
@@ -192,7 +188,30 @@ playAgainBtn.addEventListener('click', () => {
   socket.emit('start_game');
 });
 
-// Socket listeners
+// Attempt automatic reconnection if tab was refreshed
+socket.on('connect', () => {
+  const saved = sessionStorage.getItem(SESSION_KEY);
+  if (saved) {
+    try {
+      const { roomCode, playerToken } = JSON.parse(saved);
+      if (roomCode && playerToken) {
+        socket.emit('reconnect_player', { roomCode, playerToken });
+      }
+    } catch {
+      sessionStorage.removeItem(SESSION_KEY);
+    }
+  }
+});
+
+socket.on('session_credentials', ({ roomCode, playerId, playerToken }) => {
+  myPlayerId = playerId;
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomCode, playerId, playerToken }));
+});
+
+socket.on('reconnect_failed', () => {
+  sessionStorage.removeItem(SESSION_KEY);
+});
+
 socket.on('room_joined', renderRoomState);
 socket.on('room_updated', renderRoomState);
 
