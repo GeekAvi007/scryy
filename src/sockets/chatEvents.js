@@ -30,6 +30,7 @@ export function registerChatEvents(io, socket) {
     const isDrawer = room.currentDrawerId === player.id;
     const secretWord = room.currentWord?.toLowerCase();
 
+    // 1. Prevent drawer or already-guessed players from leaking the word in chat
     if (isDrawingPhase && (isDrawer || player.hasGuessed) && secretWord) {
       if (cleanMsg.toLowerCase().includes(secretWord)) {
         return socket.emit('system_notice', {
@@ -38,9 +39,11 @@ export function registerChatEvents(io, socket) {
       }
     }
 
+    // 2. Check guesses only during active DRAWING phase
     if (isDrawingPhase && !isDrawer && !player.hasGuessed && secretWord) {
       if (cleanMsg.toLowerCase() === secretWord) {
         player.hasGuessed = true;
+        player.wordsGuessed += 1;
 
         const guesserPoints = calculateGuesserPoints(room.roundStartTime);
         player.score += guesserPoints;
@@ -71,6 +74,7 @@ export function registerChatEvents(io, socket) {
       }
     }
 
+    // 3. Regular chat broadcast
     io.to(room.roomCode).emit('chat_message', {
       sender: player.username,
       text: cleanMsg,

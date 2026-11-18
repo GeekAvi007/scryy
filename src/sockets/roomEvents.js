@@ -2,6 +2,7 @@ import { roomManager } from '../state/RoomManager.js';
 import { GAME_CONFIG, ROOM_STATUS, RATE_LIMITS } from '../config/constants.js';
 import { startGame, beginDrawingPhase } from '../engine/GameLoop.js';
 import { rateLimiter } from '../utils/rateLimiter.js';
+import { verifyAuthToken } from '../routes/authRoutes.js';
 
 export function registerRoomEvents(io, socket) {
   socket.on('create_room', (payload) => {
@@ -14,10 +15,18 @@ export function registerRoomEvents(io, socket) {
         return socket.emit('room_error', { message: 'You are already in a room.' });
       }
 
-      const { room, player } = roomManager.createRoom(socket.id, payload?.username);
+      const authUser = verifyAuthToken(payload?.authToken);
+      const effectiveUsername = authUser ? authUser.username : payload?.username;
+      const effectiveUserId = authUser ? authUser.userId : null;
+
+      const { room, player } = roomManager.createRoom(
+        socket.id,
+        effectiveUsername,
+        effectiveUserId
+      );
       socket.join(room.roomCode);
 
-      console.log(`[ROOM CREATED] ${room.roomCode} by ${player.username}`);
+      console.log(`[ROOM CREATED] ${room.roomCode} by ${player.username} (auth: ${!!authUser})`);
       socket.emit('session_credentials', {
         roomCode: room.roomCode,
         playerId: player.id,
@@ -39,14 +48,19 @@ export function registerRoomEvents(io, socket) {
         return socket.emit('room_error', { message: 'You are already in a room.' });
       }
 
+      const authUser = verifyAuthToken(payload?.authToken);
+      const effectiveUsername = authUser ? authUser.username : payload?.username;
+      const effectiveUserId = authUser ? authUser.userId : null;
+
       const { room, player } = roomManager.joinRoom(
         payload?.roomCode,
         socket.id,
-        payload?.username
+        effectiveUsername,
+        effectiveUserId
       );
       socket.join(room.roomCode);
 
-      console.log(`[PLAYER JOINED] ${player.username} -> ${room.roomCode}`);
+      console.log(`[PLAYER JOINED] ${player.username} -> ${room.roomCode} (auth: ${!!authUser})`);
       socket.emit('session_credentials', {
         roomCode: room.roomCode,
         playerId: player.id,
@@ -90,12 +104,10 @@ export function registerRoomEvents(io, socket) {
     });
     socket.emit('room_joined', room.toPublicState());
 
-    // Restore canvas strokes
     if (room.strokeHistory.length > 0) {
       socket.emit('canvas_sync', room.strokeHistory);
     }
 
-    // Restore private drawer/guesser state if mid-turn
     const isDrawer = room.currentDrawerId === player.id;
     if (room.status === ROOM_STATUS.WORD_SELECT && isDrawer) {
       socket.emit('word_choices', { words: room.wordChoices });

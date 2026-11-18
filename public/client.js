@@ -9,6 +9,17 @@ const roomCodeInput = document.getElementById('roomCodeInput');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
 
+const guestAuthForm = document.getElementById('guestAuthForm');
+const loggedInBar = document.getElementById('loggedInBar');
+const loggedInUsername = document.getElementById('loggedInUsername');
+const guestNameRow = document.getElementById('guestNameRow');
+const authUserInput = document.getElementById('authUserInput');
+const authPassInput = document.getElementById('authPassInput');
+const loginBtn = document.getElementById('loginBtn');
+const registerBtn = document.getElementById('registerBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const globalLeaderboardBody = document.getElementById('globalLeaderboardBody');
+
 const displayRoomCode = document.getElementById('displayRoomCode');
 const roundDisplay = document.getElementById('roundDisplay');
 const statusDisplay = document.getElementById('statusDisplay');
@@ -39,11 +50,85 @@ const chatForm = document.getElementById('chatForm');
 const chatInput = document.getElementById('chatInput');
 
 const SESSION_KEY = 'skribbl_session';
+const AUTH_KEY = 'skribbl_auth';
+
 let myPlayerId = null;
 let canDraw = false;
 let isDrawing = false;
 let lastPos = null;
 let knownSecretWord = null;
+
+function getSavedAuth() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function syncAuthUI() {
+  const auth = getSavedAuth();
+  if (auth?.token && auth?.user) {
+    guestAuthForm.style.display = 'none';
+    guestNameRow.style.display = 'none';
+    loggedInBar.style.display = 'block';
+    loggedInUsername.textContent = auth.user.username;
+  } else {
+    guestAuthForm.style.display = 'block';
+    guestNameRow.style.display = 'block';
+    loggedInBar.style.display = 'none';
+  }
+}
+
+async function handleAuth(endpoint) {
+  errorBanner.textContent = '';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: authUserInput.value,
+        password: authPassInput.value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorBanner.textContent = data.error || 'Authentication failed.';
+      return;
+    }
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ token: data.token, user: data.user }));
+    authPassInput.value = '';
+    syncAuthUI();
+  } catch {
+    errorBanner.textContent = 'Network error during authentication.';
+  }
+}
+
+async function loadGlobalLeaderboard() {
+  try {
+    const res = await fetch('/api/leaderboard');
+    const data = await res.json();
+    globalLeaderboardBody.innerHTML = '';
+
+    if (!data.leaderboard || data.leaderboard.length === 0) {
+      globalLeaderboardBody.innerHTML = '<tr><td colspan="4">No ranked games yet.</td></tr>';
+      return;
+    }
+
+    data.leaderboard.forEach((row) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${row.username}</td>
+        <td>${row.games_played}</td>
+        <td>${row.words_guessed}</td>
+        <td><strong>${row.total_score}</strong></td>
+      `;
+      globalLeaderboardBody.appendChild(tr);
+    });
+  } catch {
+    globalLeaderboardBody.innerHTML = '<tr><td colspan="4">Leaderboard offline.</td></tr>';
+  }
+}
 
 function appendChatLine(text, className = '') {
   const div = document.createElement('div');
@@ -98,12 +183,13 @@ function renderRoomState(room) {
   playerList.innerHTML = '';
   room.players.forEach((p) => {
     const li = document.createElement('li');
+    const authTag = p.isAuthenticated ? ' ⭐' : '';
     const hostTag = p.id === room.hostId ? ' (HOST)' : '';
     const drawerTag = p.id === room.currentDrawerId ? ' 🎨' : '';
     const youTag = p.id === myPlayerId ? ' [YOU]' : '';
     const guessedTag = p.hasGuessed ? ' ✅' : '';
     const offlineTag = p.connected ? '' : ' ⏳ (reconnecting...)';
-    li.textContent = `${p.username}${hostTag}${drawerTag}${youTag}${guessedTag}${offlineTag} — ${p.score} pts`;
+    li.textContent = `${p.username}${authTag}${hostTag}${drawerTag}${youTag}${guessedTag}${offlineTag} — ${p.score} pts`;
     playerList.appendChild(li);
   });
 }
@@ -169,14 +255,27 @@ chatForm.addEventListener('submit', (e) => {
   chatInput.value = '';
 });
 
+loginBtn.addEventListener('click', () => handleAuth('/api/auth/login'));
+registerBtn.addEventListener('click', () => handleAuth('/api/auth/register'));
+logoutBtn.addEventListener('click', () => {
+  localStorage.removeItem(AUTH_KEY);
+  syncAuthUI();
+});
+
 createRoomBtn.addEventListener('click', () => {
-  socket.emit('create_room', { username: usernameInput.value });
+  const auth = getSavedAuth();
+  socket.emit('create_room', {
+    username: usernameInput.value,
+    authToken: auth?.token || null,
+  });
 });
 
 joinRoomBtn.addEventListener('click', () => {
+  const auth = getSavedAuth();
   socket.emit('join_room', {
     roomCode: roomCodeInput.value,
     username: usernameInput.value,
+    authToken: auth?.token || null,
   });
 });
 
@@ -259,6 +358,7 @@ socket.on('game_over', ({ leaderboard }) => {
     leaderboardList.appendChild(li);
   });
   gameOverBox.style.display = 'block';
+  loadGlobalLeaderboard();
 });
 
 socket.on('room_error', ({ message }) => {
@@ -287,3 +387,7 @@ socket.on('canvas_sync', (strokes) => {
 socket.on('canvas_cleared', () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
+
+// Initialize auth UI & global leaderboard on page load
+syncAuthUI();
+loadGlobalLeaderboard();

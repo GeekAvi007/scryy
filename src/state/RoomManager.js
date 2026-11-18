@@ -5,13 +5,12 @@ import { generateUniqueRoomCode } from '../utils/roomCodeGenerator.js';
 class RoomManager {
   constructor() {
     this.rooms = new Map();
-    // Map<socketId, roomCode>
     this.socketToRoom = new Map();
   }
 
-  createRoom(hostSocketId, hostUsername) {
+  createRoom(hostSocketId, hostUsername, hostUserId = null) {
     const roomCode = generateUniqueRoomCode(this.rooms);
-    const room = new Room(roomCode, hostSocketId, hostUsername);
+    const room = new Room(roomCode, hostSocketId, hostUsername, hostUserId);
     const hostPlayer = room.getPlayerBySocketId(hostSocketId);
 
     this.rooms.set(roomCode, room);
@@ -19,7 +18,7 @@ class RoomManager {
     return { room, player: hostPlayer };
   }
 
-  joinRoom(roomCode, socketId, username) {
+  joinRoom(roomCode, socketId, username, userId = null) {
     if (typeof roomCode !== 'string') {
       throw new Error('Invalid room code.');
     }
@@ -31,7 +30,7 @@ class RoomManager {
       throw new Error('Room not found. Check the room code.');
     }
 
-    const player = room.addPlayer(socketId, username);
+    const player = room.addPlayer(socketId, username, userId);
     this.socketToRoom.set(socketId, normalizedCode);
     return { room, player };
   }
@@ -48,13 +47,11 @@ class RoomManager {
     const player = room.getPlayerByToken(playerToken);
     if (!player) return null;
 
-    // Cancel pending 15s eviction timer
     if (player.disconnectTimer) {
       clearTimeout(player.disconnectTimer);
       player.disconnectTimer = null;
     }
 
-    // Clean up stale socket lookup if any
     if (player.socketId) {
       this.socketToRoom.delete(player.socketId);
     }

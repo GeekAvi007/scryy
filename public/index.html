@@ -7,17 +7,55 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Skribbl Clone — Full Game Loop</h1>
+  <h1>Scryy - Game Loop</h1>
   <p id="errorBanner" style="color: red; font-weight: bold;"></p>
 
   <!-- SCREEN 1: LOBBY -->
-  <div id="lobbyScreen">
-    <input id="usernameInput" type="text" placeholder="Enter your username" maxlength="16" />
-    <br /><br />
-    <button id="createRoomBtn">Create New Room</button>
-    <hr />
-    <input id="roomCodeInput" type="text" placeholder="6-char Room Code" maxlength="6" />
-    <button id="joinRoomBtn">Join Room</button>
+  <div id="lobbyScreen" style="display: flex; gap: 32px; align-items: flex-start;">
+    <div style="flex: 1;">
+      <div id="authStatusBox" class="overlay-box">
+        <div id="guestAuthForm">
+          <strong>Optional: Sign in to save career stats</strong>
+          <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
+            <input id="authUserInput" type="text" placeholder="Username" maxlength="16" />
+            <input id="authPassInput" type="password" placeholder="Password (6+ chars)" />
+            <button id="loginBtn">Login</button>
+            <button id="registerBtn">Register</button>
+          </div>
+        </div>
+        <div id="loggedInBar" style="display: none;">
+          Signed in as <strong id="loggedInUsername"></strong> ⭐
+          <button id="logoutBtn" style="margin-left: 10px;">Logout</button>
+        </div>
+      </div>
+
+      <div id="guestNameRow">
+        <input id="usernameInput" type="text" placeholder="Guest username" maxlength="16" />
+        <br /><br />
+      </div>
+
+      <button id="createRoomBtn">Create New Room</button>
+      <hr />
+      <input id="roomCodeInput" type="text" placeholder="6-char Room Code" maxlength="6" />
+      <button id="joinRoomBtn">Join Room</button>
+    </div>
+
+    <div style="width: 340px; border: 1px solid #ccc; padding: 12px; border-radius: 8px;">
+      <h3 style="margin-top: 0;">🏆 Global All-Time Leaderboard</h3>
+      <table style="width: 100%; text-align: left; font-size: 0.9rem; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Games</th>
+            <th>Guessed</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody id="globalLeaderboardBody">
+          <tr><td colspan="4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <!-- SCREEN 2: ROOM & GAMEPLAY -->

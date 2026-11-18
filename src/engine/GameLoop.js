@@ -1,11 +1,13 @@
 import { GAME_CONFIG, ROOM_STATUS } from '../config/constants.js';
 import { getRandomWords } from '../data/words.js';
+import { recordMatchStats } from '../db/postgres.js';
 
 export function startGame(io, room) {
   room.clearTimers();
 
   for (const player of room.players.values()) {
     player.score = 0;
+    player.wordsGuessed = 0;
     player.hasGuessed = false;
   }
 
@@ -158,9 +160,11 @@ export function endGame(io, room, reason = 'Game finished!') {
   room.currentWord = null;
   room.timeLeft = 0;
 
-  const leaderboard = Array.from(room.players.values()).sort(
-    (a, b) => b.score - a.score
-  );
+  const playersArray = Array.from(room.players.values());
+  const leaderboard = [...playersArray].sort((a, b) => b.score - a.score);
+
+  // Persist career stats for authenticated players without blocking the socket loop
+  recordMatchStats(playersArray);
 
   io.to(room.roomCode).emit('game_over', { reason, leaderboard });
   io.to(room.roomCode).emit('room_updated', room.toPublicState());

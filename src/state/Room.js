@@ -2,14 +2,13 @@ import crypto from 'crypto';
 import { GAME_CONFIG, ROOM_STATUS } from '../config/constants.js';
 
 export class Room {
-  constructor(roomCode, hostSocketId, hostUsername) {
+  constructor(roomCode, hostSocketId, hostUsername, hostUserId = null) {
     this.roomCode = roomCode;
     this.status = ROOM_STATUS.LOBBY;
 
-    // Map<playerId, { id, socketId, playerToken, username, score, hasGuessed, connected, disconnectTimer }>
     this.players = new Map();
 
-    const hostPlayer = this.addPlayer(hostSocketId, hostUsername);
+    const hostPlayer = this.addPlayer(hostSocketId, hostUsername, hostUserId);
     this.hostId = hostPlayer.id;
 
     this.currentDrawerId = null;
@@ -20,7 +19,6 @@ export class Room {
     this.roundStartTime = null;
     this.timeLeft = 0;
 
-    // Ordered list of stable playerIds
     this.drawerOrder = [];
     this.drawerIndex = -1;
 
@@ -28,7 +26,7 @@ export class Room {
     this.timerInterval = null;
   }
 
-  addPlayer(socketId, username) {
+  addPlayer(socketId, username, userId = null) {
     if (this.players.size >= GAME_CONFIG.MAX_PLAYERS) {
       throw new Error('Room is full.');
     }
@@ -53,10 +51,12 @@ export class Room {
 
     const player = {
       id: playerId,
+      userId,
       socketId,
       playerToken,
       username: cleanName,
       score: 0,
+      wordsGuessed: 0,
       hasGuessed: false,
       connected: true,
       disconnectTimer: null,
@@ -110,7 +110,6 @@ export class Room {
       }
     }
 
-    // Host migration: prefer a currently connected player first
     if (this.hostId === playerId && this.players.size > 0) {
       const connectedPlayer = Array.from(this.players.values()).find((p) => p.connected);
       this.hostId = connectedPlayer
@@ -193,7 +192,6 @@ export class Room {
     return this.players.size === 0;
   }
 
-  // Never expose playerToken or currentWord in public room state!
   toPublicState() {
     return {
       roomCode: this.roomCode,
@@ -207,6 +205,7 @@ export class Room {
       players: Array.from(this.players.values()).map((p) => ({
         id: p.id,
         username: p.username,
+        isAuthenticated: p.userId !== null,
         score: p.score,
         hasGuessed: p.hasGuessed,
         connected: p.connected,
